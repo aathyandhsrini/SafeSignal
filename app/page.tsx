@@ -1,108 +1,49 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useState } from "react";
 
-type Language = "en" | "es" | "zh" | "hi";
-type AlertItem = { id: string; event: string; headline: string; severity: string; instruction?: string; expires?: string };
-type Place = { name: string; state: string; latitude: number; longitude: number };
-type Result = { place: Place; aqi: number; pm25: number | null; updated: string; alerts: AlertItem[] };
+type Language = "en" | "es" | "hi" | "zh" | "ar";
+type Result = {
+  location: { name: string; zip: string };
+  aqi: 1 | 2 | 3 | 4 | 5;
+  pollutants: { pm2_5?: number; pm10?: number; no2?: number; o3?: number };
+  updatedAt: string;
+  alerts: { id: string; event: string; headline: string; severity: string; instruction?: string | null }[];
+};
 
 const copy = {
-  en: { label: "English", title: "Know what’s happening near you.", intro: "Live air quality and official weather alerts, explained simply.", zip: "U.S. ZIP code", check: "Check my area", low: "Low-data mode", notify: "Alert me", good: "Air is good", moderate: "Take care", unhealthy: "Air is unhealthy", danger: "Dangerous air", noAlerts: "No active weather alerts", official: "Official safety instructions", updated: "Updated", error: "We couldn’t load that area. Check the ZIP code and try again.", tipGood: "It is safe for most people to be outside.", tipModerate: "People with asthma or heart conditions should take breaks outdoors.", tipUnhealthy: "Stay indoors when possible. Close windows and use a well-fitting mask outside.", tipDanger: "Stay indoors. Close windows. Use an air filter if available. Follow local emergency guidance.", permission: "Keep this tab open and we’ll notify you if conditions worsen." },
-  es: { label: "Español", title: "Sepa qué pasa cerca de usted.", intro: "Calidad del aire y alertas oficiales, explicadas de forma sencilla.", zip: "Código postal de EE. UU.", check: "Revisar mi zona", low: "Modo de pocos datos", notify: "Avisarme", good: "El aire está bien", moderate: "Tenga cuidado", unhealthy: "El aire no es saludable", danger: "Aire peligroso", noAlerts: "No hay alertas meteorológicas activas", official: "Instrucciones oficiales de seguridad", updated: "Actualizado", error: "No pudimos cargar esa zona. Revise el código postal.", tipGood: "Es seguro estar afuera para la mayoría de las personas.", tipModerate: "Las personas con asma o problemas cardíacos deben descansar al aire libre.", tipUnhealthy: "Quédese adentro si puede. Cierre las ventanas y use una mascarilla bien ajustada afuera.", tipDanger: "Quédese adentro. Cierre las ventanas. Use un filtro de aire y siga las indicaciones locales.", permission: "Mantenga esta pestaña abierta y le avisaremos si empeoran las condiciones." },
-  zh: { label: "中文", title: "了解您附近正在发生什么。", intro: "实时空气质量和官方天气警报，简单易懂。", zip: "美国邮政编码", check: "查看我的地区", low: "低流量模式", notify: "提醒我", good: "空气良好", moderate: "请注意", unhealthy: "空气不健康", danger: "空气危险", noAlerts: "目前没有天气警报", official: "官方安全说明", updated: "更新时间", error: "无法加载该地区。请检查邮政编码。", tipGood: "大多数人可以安全地进行户外活动。", tipModerate: "哮喘或心脏病患者在户外应多休息。", tipUnhealthy: "尽量留在室内。关好窗户，外出时佩戴贴合面部的口罩。", tipDanger: "留在室内，关好窗户。如有条件请使用空气净化器，并遵循当地指示。", permission: "请保持此页面打开，情况恶化时我们会通知您。" },
-  hi: { label: "हिन्दी", title: "जानें आपके आस-पास क्या हो रहा है।", intro: "लाइव वायु गुणवत्ता और सरकारी मौसम चेतावनी, आसान भाषा में।", zip: "अमेरिकी ज़िप कोड", check: "मेरा क्षेत्र देखें", low: "कम-डेटा मोड", notify: "मुझे चेतावनी दें", good: "हवा अच्छी है", moderate: "सावधानी रखें", unhealthy: "हवा अस्वस्थ है", danger: "हवा खतरनाक है", noAlerts: "मौसम की कोई सक्रिय चेतावनी नहीं", official: "सरकारी सुरक्षा निर्देश", updated: "अपडेट", error: "यह क्षेत्र लोड नहीं हुआ। ज़िप कोड जाँचकर फिर कोशिश करें।", tipGood: "अधिकतर लोगों के लिए बाहर जाना सुरक्षित है।", tipModerate: "अस्थमा या दिल की बीमारी वाले लोग बाहर आराम लेते रहें।", tipUnhealthy: "हो सके तो अंदर रहें। खिड़कियाँ बंद रखें और बाहर सही फिट वाला मास्क पहनें।", tipDanger: "अंदर रहें और खिड़कियाँ बंद रखें। एयर फ़िल्टर हो तो चलाएँ और स्थानीय निर्देश मानें।", permission: "यह टैब खुला रखें; स्थिति बिगड़ने पर हम आपको बताएँगे।" },
+  en: { name: "English", title: "Know your air. Protect your health.", subtitle: "Live air quality and official weather alerts for any U.S. ZIP code.", zip: "U.S. ZIP code", placeholder: "Enter ZIP code", check: "Check My Area", loading: "Checking…", error: "We couldn’t load that area. Check the ZIP code and try again.", scale: "OpenWeather AQI", updated: "Last updated", tips: "What you can do", alerts: "Weather alerts", clear: "No active weather alerts for this area.", levels: ["", "Good", "Fair", "Moderate", "Poor", "Very poor"], messages: ["", "The air is clean for most people.", "Air is generally acceptable. Sensitive people should pay attention to symptoms.", "Sensitive people may feel effects from the air.", "The air may affect everyone, especially sensitive groups.", "The air is unhealthy. Reduce exposure as much as possible."], safety: [[], ["Enjoy normal outdoor activities.", "Open windows if local conditions allow."], ["Sensitive people: take breaks during long outdoor activity.", "Keep rescue medication nearby if prescribed."], ["Sensitive people: shorten strenuous outdoor activity.", "Close windows if you smell smoke or feel symptoms.", "Consider a well-fitting mask outdoors."], ["Limit time and exercise outdoors.", "Keep windows closed and use an air filter if available.", "Wear a well-fitting mask when outside."], ["Stay indoors when possible.", "Run an air purifier or use a clean-air room.", "Follow local health and emergency guidance."]] },
+  es: { name: "Español", title: "Conozca su aire. Proteja su salud.", subtitle: "Calidad del aire y alertas oficiales para cualquier código postal de EE. UU.", zip: "Código postal de EE. UU.", placeholder: "Ingrese el código postal", check: "Revisar mi zona", loading: "Revisando…", error: "No pudimos cargar esa zona. Revise el código postal e inténtelo de nuevo.", scale: "AQI de OpenWeather", updated: "Última actualización", tips: "Qué puede hacer", alerts: "Alertas meteorológicas", clear: "No hay alertas meteorológicas activas en esta zona.", levels: ["", "Bueno", "Aceptable", "Moderado", "Malo", "Muy malo"], messages: ["", "El aire está limpio para la mayoría de las personas.", "El aire es generalmente aceptable. Las personas sensibles deben observar sus síntomas.", "Las personas sensibles pueden sentir efectos del aire.", "El aire puede afectar a todos, especialmente a los grupos sensibles.", "El aire no es saludable. Reduzca la exposición tanto como sea posible."], safety: [[], ["Disfrute de sus actividades normales al aire libre.", "Abra las ventanas si las condiciones locales lo permiten."], ["Personas sensibles: descansen durante actividades largas al aire libre.", "Tenga cerca su medicamento de rescate si fue recetado."], ["Personas sensibles: reduzcan la actividad intensa al aire libre.", "Cierre las ventanas si huele humo o tiene síntomas.", "Considere una mascarilla bien ajustada afuera."], ["Limite el tiempo y el ejercicio al aire libre.", "Cierre las ventanas y use un filtro de aire si tiene uno.", "Use una mascarilla bien ajustada afuera."], ["Quédese adentro cuando sea posible.", "Use un purificador o una habitación de aire limpio.", "Siga las indicaciones locales de salud y emergencia."]] },
+  hi: { name: "हिन्दी", title: "अपनी हवा जानें। स्वास्थ्य सुरक्षित रखें।", subtitle: "किसी भी अमेरिकी ज़िप कोड के लिए लाइव वायु गुणवत्ता और सरकारी मौसम चेतावनी।", zip: "अमेरिकी ज़िप कोड", placeholder: "ज़िप कोड डालें", check: "मेरा क्षेत्र देखें", loading: "जाँच हो रही है…", error: "यह क्षेत्र लोड नहीं हुआ। ज़िप कोड जाँचकर फिर कोशिश करें।", scale: "OpenWeather AQI", updated: "अंतिम अपडेट", tips: "आप क्या कर सकते हैं", alerts: "मौसम चेतावनी", clear: "इस क्षेत्र के लिए कोई सक्रिय मौसम चेतावनी नहीं है।", levels: ["", "अच्छा", "ठीक", "मध्यम", "खराब", "बहुत खराब"], messages: ["", "अधिकतर लोगों के लिए हवा साफ़ है।", "हवा सामान्यतः ठीक है। संवेदनशील लोग लक्षणों पर ध्यान दें।", "संवेदनशील लोगों पर हवा का असर हो सकता है।", "हवा सभी को, खासकर संवेदनशील लोगों को प्रभावित कर सकती है।", "हवा अस्वस्थ है। जितना हो सके संपर्क कम करें।"], safety: [[], ["सामान्य बाहरी गतिविधियाँ करें।", "स्थानीय स्थिति ठीक हो तो खिड़कियाँ खोलें।"], ["संवेदनशील लोग लंबी बाहरी गतिविधि में आराम लें।", "डॉक्टर द्वारा दी गई आपात दवा पास रखें।"], ["संवेदनशील लोग कठिन बाहरी गतिविधि कम करें।", "धुआँ या लक्षण हों तो खिड़कियाँ बंद करें।", "बाहर सही फिट वाला मास्क पहनें।"], ["बाहर समय और व्यायाम सीमित करें।", "खिड़कियाँ बंद रखें और एयर फ़िल्टर चलाएँ।", "बाहर सही फिट वाला मास्क पहनें।"], ["हो सके तो अंदर रहें।", "एयर प्यूरीफायर या साफ़ हवा वाला कमरा उपयोग करें।", "स्थानीय स्वास्थ्य और आपात निर्देश मानें।"]] },
+  zh: { name: "中文", title: "了解空气，保护健康。", subtitle: "查询美国任何邮政编码的实时空气质量和官方天气警报。", zip: "美国邮政编码", placeholder: "输入邮政编码", check: "查看我的地区", loading: "正在查询…", error: "无法加载该地区。请检查邮政编码后重试。", scale: "OpenWeather 空气质量指数", updated: "最后更新", tips: "您可以这样做", alerts: "天气警报", clear: "该地区目前没有天气警报。", levels: ["", "良好", "尚可", "中等", "较差", "很差"], messages: ["", "对大多数人来说，空气很清洁。", "空气总体可以接受。敏感人群应注意症状。", "敏感人群可能会受到空气影响。", "空气可能影响所有人，尤其是敏感人群。", "空气不健康。请尽量减少接触。"], safety: [[], ["可以正常进行户外活动。", "当地条件允许时可以开窗。"], ["敏感人群长时间户外活动时应休息。", "如有处方，请随身携带急救药物。"], ["敏感人群应缩短剧烈户外活动。", "闻到烟味或出现症状时请关窗。", "外出时考虑佩戴贴合面部的口罩。"], ["限制户外时间和运动。", "关好窗户，有条件时使用空气净化器。", "外出时佩戴贴合面部的口罩。"], ["尽量留在室内。", "使用空气净化器或待在清洁空气房间。", "遵循当地卫生和应急部门的指示。"]] },
+  ar: { name: "العربية", title: "اعرف هواءك. احمِ صحتك.", subtitle: "جودة الهواء المباشرة وتنبيهات الطقس الرسمية لأي رمز بريدي أمريكي.", zip: "الرمز البريدي الأمريكي", placeholder: "أدخل الرمز البريدي", check: "تحقق من منطقتي", loading: "جارٍ التحقق…", error: "تعذر تحميل هذه المنطقة. تحقق من الرمز البريدي وحاول مجددًا.", scale: "مؤشر OpenWeather", updated: "آخر تحديث", tips: "ما يمكنك فعله", alerts: "تنبيهات الطقس", clear: "لا توجد تنبيهات طقس نشطة لهذه المنطقة.", levels: ["", "جيد", "مقبول", "متوسط", "سيئ", "سيئ جدًا"], messages: ["", "الهواء نظيف لمعظم الناس.", "الهواء مقبول عمومًا. على الأشخاص الحساسين مراقبة الأعراض.", "قد يشعر الأشخاص الحساسون بتأثيرات الهواء.", "قد يؤثر الهواء على الجميع، وخاصة الفئات الحساسة.", "الهواء غير صحي. قلل التعرض قدر الإمكان."], safety: [[], ["استمتع بالأنشطة الخارجية المعتادة.", "افتح النوافذ إذا سمحت الظروف المحلية."], ["على الأشخاص الحساسين أخذ استراحات أثناء النشاط الخارجي الطويل.", "احتفظ بدواء الإنقاذ قريبًا إذا وصفه الطبيب."], ["على الأشخاص الحساسين تقليل النشاط الخارجي الشاق.", "أغلق النوافذ إذا شممت الدخان أو شعرت بأعراض.", "استخدم كمامة محكمة في الخارج."], ["قلل الوقت والتمارين في الخارج.", "أغلق النوافذ واستخدم مرشح هواء إن توفر.", "ارتدِ كمامة محكمة في الخارج."], ["ابقَ في الداخل قدر الإمكان.", "شغّل منقي الهواء أو استخدم غرفة بهواء نظيف.", "اتبع إرشادات الصحة والطوارئ المحلية."]] },
 } as const;
 
-function level(aqi: number) { return aqi <= 50 ? "good" : aqi <= 100 ? "moderate" : aqi <= 200 ? "unhealthy" : "danger"; }
-
 export default function Home() {
-  const [lang, setLang] = useState<Language>("en");
-  const [zip, setZip] = useState("90210");
+  const [language, setLanguage] = useState<Language>("en");
+  const [zip, setZip] = useState("");
   const [result, setResult] = useState<Result | null>(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(false);
-  const [lowData, setLowData] = useState(false);
-  const [notifications, setNotifications] = useState(false);
-  const t = copy[lang];
+  const [error, setError] = useState("");
+  const t = copy[language];
 
-  const safety = useMemo(() => result ? t[`tip${level(result.aqi)[0].toUpperCase()}${level(result.aqi).slice(1)}` as keyof typeof t] : "", [result, t]);
-
-  async function loadArea(chosenZip = zip, quiet = false) {
-    if (!/^\d{5}$/.test(chosenZip)) { setError(true); return; }
-    if (!quiet) setLoading(true);
-    setError(false);
+  async function search(event: FormEvent) {
+    event.preventDefault();
+    if (!/^\d{5}$/.test(zip)) { setError(t.error); return; }
+    setLoading(true); setError("");
     try {
-      const geoResponse = await fetch(`https://api.zippopotam.us/us/${chosenZip}`);
-      if (!geoResponse.ok) throw new Error("ZIP not found");
-      const geo = await geoResponse.json();
-      const first = geo.places[0];
-      const place: Place = { name: first["place name"], state: first["state abbreviation"], latitude: Number(first.latitude), longitude: Number(first.longitude) };
-      const [airResponse, alertResponse] = await Promise.all([
-        fetch(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${place.latitude}&longitude=${place.longitude}&current=us_aqi,pm2_5&timezone=auto`),
-        fetch(`https://api.weather.gov/alerts/active?point=${place.latitude},${place.longitude}`, { headers: { Accept: "application/geo+json" } }),
-      ]);
-      if (!airResponse.ok) throw new Error("Air data unavailable");
-      const air = await airResponse.json();
-      const weather = alertResponse.ok ? await alertResponse.json() : { features: [] };
-      const next: Result = {
-        place,
-        aqi: Math.round(air.current.us_aqi),
-        pm25: air.current.pm2_5 ?? null,
-        updated: air.current.time,
-        alerts: weather.features.slice(0, 3).map((item: any) => ({ id: item.id, event: item.properties.event, headline: item.properties.headline, severity: item.properties.severity, instruction: item.properties.instruction, expires: item.properties.expires })),
-      };
-      if (quiet && notifications && result && level(next.aqi) !== level(result.aqi) && "Notification" in window && Notification.permission === "granted") {
-        new Notification(`${next.place.name}: AQI ${next.aqi}`, { body: copy[lang][level(next.aqi)] });
-      }
-      setResult(next);
-      localStorage.setItem("safesignal-zip", chosenZip);
-    } catch { setError(true); }
+      const response = await fetch(`/api/air-quality?zip=${zip}`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error);
+      setResult(data);
+    } catch { setResult(null); setError(t.error); }
     finally { setLoading(false); }
   }
 
-  useEffect(() => {
-    const saved = localStorage.getItem("safesignal-zip");
-    if (saved) { setZip(saved); loadArea(saved); }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    if (!result || lowData) return;
-    const timer = window.setInterval(() => loadArea(zip, true), 5 * 60 * 1000);
-    return () => window.clearInterval(timer);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [result?.place.name, lowData, zip, notifications, lang]);
-
-  async function enableNotifications() {
-    if (!("Notification" in window)) return;
-    const permission = await Notification.requestPermission();
-    setNotifications(permission === "granted");
-  }
-
-  function submit(event: FormEvent) { event.preventDefault(); loadArea(); }
-  const currentLevel = result ? level(result.aqi) : "good";
-
-  return (
-    <main>
-      <nav aria-label="Site navigation"><a className="brand" href="#top"><span>●</span> SafeSignal</a><select aria-label="Language" value={lang} onChange={e => setLang(e.target.value as Language)}>{Object.entries(copy).map(([key, value]) => <option value={key} key={key}>{value.label}</option>)}</select></nav>
-      <section id="top" className="hero">
-        <div className="eyebrow">AIR + WEATHER · UNITED STATES</div>
-        <h1>{t.title}</h1><p>{t.intro}</p>
-        <form onSubmit={submit}><label htmlFor="zip">{t.zip}</label><div className="search"><input id="zip" inputMode="numeric" maxLength={5} pattern="[0-9]{5}" value={zip} onChange={e => setZip(e.target.value.replace(/\D/g, ""))} placeholder="e.g. 90210"/><button disabled={loading}>{loading ? "…" : t.check}</button></div></form>
-        <div className="preferences"><label><input type="checkbox" checked={lowData} onChange={e => setLowData(e.target.checked)}/> {t.low}</label><span>•</span><span>No account needed</span></div>
-        {error && <p className="error" role="alert">{t.error}</p>}
-      </section>
-
-      {result && <section className="results" aria-live="polite">
-        <div className={`status ${currentLevel}`}><div><span className="location">{result.place.name}, {result.place.state}</span><div className="aqi"><strong>{result.aqi}</strong><span>US AQI<br/>{result.pm25 !== null && !lowData ? `PM2.5 ${result.pm25} μg/m³` : ""}</span></div></div><div className="verdict"><span>{t[currentLevel]}</span><p>{safety}</p></div></div>
-        <div className="actions"><button className="notify" onClick={enableNotifications} disabled={notifications}>{notifications ? "✓ " : "○ "}{t.notify}</button><p>{t.permission}</p></div>
-        <div className="alert-list"><div className="section-title"><h2>Weather alerts</h2><span>{result.alerts.length} ACTIVE</span></div>{result.alerts.length === 0 ? <div className="clear"><span>✓</span><div><strong>{t.noAlerts}</strong><p>We’ll keep checking this area.</p></div></div> : result.alerts.map(alert => <article className="weather-alert" key={alert.id}><div className="severity">{alert.severity}</div><h3>{alert.event}</h3><p>{alert.headline}</p>{alert.instruction && !lowData && <details><summary>{t.official}</summary><p>{alert.instruction}</p></details>}</article>)}</div>
-        <p className="timestamp">{t.updated}: {new Date(result.updated).toLocaleString(lang)} · Air data: Open-Meteo/CAMS · Alerts: NOAA/NWS</p>
-      </section>}
-
-      <section className="how"><div><span>01</span><h2>Enter a ZIP</h2><p>We turn it into a location—no precise GPS needed.</p></div><div><span>02</span><h2>Check trusted sources</h2><p>We ask live air-quality and government alert APIs.</p></div><div><span>03</span><h2>Act with confidence</h2><p>Get one clear instruction in your chosen language.</p></div></section>
-      <footer><strong>SafeSignal</strong><p>For awareness only. During an emergency, follow local authorities and call 911 when immediate help is needed.</p></footer>
-    </main>
-  );
+  return <main dir={language === "ar" ? "rtl" : "ltr"}>
+    <header><a href="#top" className="brand"><span aria-hidden="true">●</span> SafeSignal</a><select aria-label="Language" value={language} onChange={(event) => setLanguage(event.target.value as Language)}>{Object.entries(copy).map(([code, value]) => <option key={code} value={code}>{value.name}</option>)}</select></header>
+    <section className="hero" id="top"><p className="eyebrow">LIVE AIR QUALITY · UNITED STATES</p><h1>{t.title}</h1><p className="subtitle">{t.subtitle}</p><form onSubmit={search}><label htmlFor="zip">{t.zip}</label><div className="search"><input id="zip" aria-describedby={error ? "search-error" : undefined} inputMode="numeric" pattern="[0-9]{5}" maxLength={5} value={zip} onChange={(event) => setZip(event.target.value.replace(/\D/g, ""))} placeholder={t.placeholder}/><button disabled={loading}>{loading ? t.loading : t.check}</button></div>{error && <p id="search-error" className="error" role="alert">{error}</p>}</form></section>
+    {result && <section className="result" aria-live="polite"><div className="result-heading"><div><p className="eyebrow">{result.location.name} · {result.location.zip}</p><h2>{t.levels[result.aqi]}</h2><p>{t.messages[result.aqi]}</p></div><div className={`aqi-circle aqi-${result.aqi}`}><strong>{result.aqi}</strong><span>{t.scale}<br/>1–5</span></div></div><div className="detail-grid"><article><h3>{t.tips}</h3><ul>{t.safety[result.aqi].map((tip) => <li key={tip}>{tip}</li>)}</ul></article><article><h3>PM2.5</h3><p className="metric">{Math.round(result.pollutants.pm2_5 ?? 0)} <small>µg/m³</small></p><p>PM10: {Math.round(result.pollutants.pm10 ?? 0)} µg/m³</p></article></div><div className="weather"><div className="weather-title"><h3>{t.alerts}</h3><span>{result.alerts.length} ACTIVE</span></div>{result.alerts.length === 0 ? <p className="clear">✓ {t.clear}</p> : result.alerts.map((alert) => <article className="alert" key={alert.id}><small>{alert.severity}</small><h4>{alert.event}</h4><p>{alert.headline}</p></article>)}</div><p className="timestamp">{t.updated}: {new Date(result.updatedAt).toLocaleString(language)} · OpenWeatherMap · NOAA/NWS</p></section>}
+    <footer><strong>SafeSignal</strong><p>For awareness only. Follow local authorities during an emergency.</p></footer>
+  </main>;
 }
