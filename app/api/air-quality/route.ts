@@ -17,18 +17,17 @@ export async function GET(request: NextRequest) {
   }
 
   const key = process.env.OPENWEATHER_API_KEY;
-  if (!key) {
-    return NextResponse.json({ error: "Air-quality service is not configured." }, { status: 503 });
-  }
 
   try {
     const geoUrl = new URL("https://api.openweathermap.org/geo/1.0/zip");
     geoUrl.searchParams.set("zip", `${zip},US`);
-    geoUrl.searchParams.set("appid", key);
-    const geoResponse = await fetch(geoUrl, { next: { revalidate: 3600 } });
+    if (key) geoUrl.searchParams.set("appid", key);
+    const geoResponse = key
+      ? await fetch(geoUrl, { next: { revalidate: 3600 } })
+      : null;
     let place: { name: string; lat: number; lon: number };
-    let useOpenWeather = geoResponse.ok;
-    if (geoResponse.ok) {
+    const useOpenWeather = Boolean(geoResponse?.ok);
+    if (geoResponse?.ok) {
       place = await geoResponse.json();
     } else {
       const fallbackGeo = await fetch(`https://api.zippopotam.us/us/${zip}`, { next: { revalidate: 86400 } });
@@ -40,7 +39,7 @@ export async function GET(request: NextRequest) {
     const airUrl = new URL("https://api.openweathermap.org/data/2.5/air_pollution");
     airUrl.searchParams.set("lat", String(place.lat));
     airUrl.searchParams.set("lon", String(place.lon));
-    airUrl.searchParams.set("appid", key);
+    if (key) airUrl.searchParams.set("appid", key);
 
     const [airResponse, alertsResponse] = await Promise.all([
       useOpenWeather ? fetch(airUrl, { next: { revalidate: 600 } }) : Promise.resolve(null),
@@ -62,7 +61,6 @@ export async function GET(request: NextRequest) {
       updatedAt = new Date(reading.dt * 1000).toISOString();
       provider = "OpenWeatherMap";
     } else {
-      useOpenWeather = false;
       const fallbackAir = await fetch(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${place.lat}&longitude=${place.lon}&current=us_aqi,pm2_5,pm10,nitrogen_dioxide,ozone&timezone=auto`, { next: { revalidate: 600 } });
       if (!fallbackAir.ok) throw new Error("Fallback air-quality provider failed");
       const air = await fallbackAir.json();
