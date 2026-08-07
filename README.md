@@ -102,8 +102,8 @@ actions tied to the current ChatGPT user. Leave public content anonymous.
 - [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
 
 ## Team
-- Aathyan Dhsrini (Lead Developer)
-- Rachit Panchal (Frontend & Marketing)
+- Aathyandh Srinivasan (Lead Developer)
+- Rachit Panchal (Lead Developer)
 
 ## About
 SafeSignal is a real-time disaster and air quality alert app built for communities with low data connectivity and language barriers.
