@@ -26,28 +26,52 @@ export async function GET(request: NextRequest) {
     geoUrl.searchParams.set("zip", `${zip},US`);
     geoUrl.searchParams.set("appid", key);
     const geoResponse = await fetch(geoUrl, { next: { revalidate: 3600 } });
-    if (!geoResponse.ok) {
-      return NextResponse.json({ error: "ZIP code not found." }, { status: geoResponse.status === 404 ? 404 : 502 });
+    let place: { name: string; lat: number; lon: number };
+    let useOpenWeather = geoResponse.ok;
+    if (geoResponse.ok) {
+      place = await geoResponse.json();
+    } else {
+      const fallbackGeo = await fetch(`https://api.zippopotam.us/us/${zip}`, { next: { revalidate: 86400 } });
+      if (!fallbackGeo.ok) return NextResponse.json({ error: "ZIP code not found." }, { status: 404 });
+      const data = await fallbackGeo.json();
+      const match = data.places?.[0];
+      place = { name: match["place name"], lat: Number(match.latitude), lon: Number(match.longitude) };
     }
-
-    const place = await geoResponse.json();
     const airUrl = new URL("https://api.openweathermap.org/data/2.5/air_pollution");
     airUrl.searchParams.set("lat", String(place.lat));
     airUrl.searchParams.set("lon", String(place.lon));
     airUrl.searchParams.set("appid", key);
 
     const [airResponse, alertsResponse] = await Promise.all([
-      fetch(airUrl, { next: { revalidate: 600 } }),
+      useOpenWeather ? fetch(airUrl, { next: { revalidate: 600 } }) : Promise.resolve(null),
       fetch(`https://api.weather.gov/alerts/active?point=${place.lat},${place.lon}`, {
         headers: { Accept: "application/geo+json", "User-Agent": "SafeSignal/1.0" },
         next: { revalidate: 300 },
       }),
     ]);
-    if (!airResponse.ok) throw new Error("Air-quality provider failed");
-
-    const air = await airResponse.json();
-    const reading = air.list?.[0];
-    if (!reading) throw new Error("No air-quality reading available");
+    let aqi: number;
+    let pollutants: Record<string, number>;
+    let updatedAt: string;
+    let provider: "OpenWeatherMap" | "Open-Meteo";
+    if (airResponse?.ok) {
+      const air = await airResponse.json();
+      const reading = air.list?.[0];
+      if (!reading) throw new Error("No air-quality reading available");
+      aqi = reading.main.aqi;
+      pollutants = reading.components;
+      updatedAt = new Date(reading.dt * 1000).toISOString();
+      provider = "OpenWeatherMap";
+    } else {
+      useOpenWeather = false;
+      const fallbackAir = await fetch(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${place.lat}&longitude=${place.lon}&current=us_aqi,pm2_5,pm10,nitrogen_dioxide,ozone&timezone=auto`, { next: { revalidate: 600 } });
+      if (!fallbackAir.ok) throw new Error("Fallback air-quality provider failed");
+      const air = await fallbackAir.json();
+      const usAqi = Number(air.current.us_aqi);
+      aqi = usAqi <= 50 ? 1 : usAqi <= 100 ? 2 : usAqi <= 150 ? 3 : usAqi <= 200 ? 4 : 5;
+      pollutants = { pm2_5: air.current.pm2_5, pm10: air.current.pm10, no2: air.current.nitrogen_dioxide, o3: air.current.ozone };
+      updatedAt = air.current.time;
+      provider = "Open-Meteo";
+    }
 
     let alerts: NwsFeature[] = [];
     if (alertsResponse.ok) {
@@ -57,9 +81,10 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       location: { name: place.name, zip, latitude: place.lat, longitude: place.lon },
-      aqi: reading.main.aqi,
-      pollutants: reading.components,
-      updatedAt: new Date(reading.dt * 1000).toISOString(),
+      aqi,
+      pollutants,
+      updatedAt,
+      provider,
       alerts: alerts.map((alert) => ({
         id: alert.id,
         event: alert.properties.event ?? "Weather alert",
